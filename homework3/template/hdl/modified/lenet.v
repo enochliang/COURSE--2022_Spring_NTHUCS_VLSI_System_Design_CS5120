@@ -152,7 +152,7 @@ module lenet (
         if(!rst_n) conv_cnt <= 0;
         else begin
             case(cur_state)
-                CONV1:if(timer == 9)begin
+                CONV1:if(timer == 12)begin
                     case(conv_cnt)
                         0:conv_cnt <= 1;
                         1:conv_cnt <= 2;
@@ -356,23 +356,22 @@ module lenet (
     endgenerate
     //integer d;
     //-------------------------------------
-    /* always@(posedge clk)begin
-        if((1))begin
+    always@(posedge clk)begin
+        if(cur_state>2)begin
             $write("state: %h",cur_state);
             
             $write(", w_bf:%h",weight_buf_1);
             $write(",\033[31m sram_weight_addr0:%h\033[m",sram_weight_addr0);
+            $write(",\033[31m sram_act_addr0:%h\033[m",sram_act_addr0);
             $write(", conv_cnt:%1d",conv_cnt);
-
-            $write(", fc_sum:%d",fc_sum);
-            $write(", bias_buf:%d",bias_buf);
+            $write(", mc[0]:%d",mac_reg[0]);
             
             //$write(", act_wd0,1:%h,%h",sram_act_wdata0,sram_act_wdata1);
             $write(", timer",timer);
             $display();
         end
         
-    end */
+    end
     //=====================================
     //    I/O
     //=====================================
@@ -456,8 +455,8 @@ module lenet (
                     else              next_state = cur_state;
                 end
                 CONV1:begin
-                    if(conv1_w_flag && (timer == 9)) next_state = CONV1_write;
-                    else                                  next_state = cur_state;
+                    if(conv1_w_flag && (timer == 12)) next_state = CONV1_write;
+                    else                              next_state = cur_state;
                 end
                 CONV1_write:begin
                     if(conv1_end) next_state = CONV2;
@@ -517,6 +516,7 @@ module lenet (
     wire signed [31:0] mac_O[0:39];
     reg  signed [31:0] mac_reg[0:39];
     wire signed [31:0] conv_sum[0:7];
+    reg  signed [31:0] conv_sum_buf[4:7];
     wire signed [31:0] fc_sum;
     wire signed [31:0] pool_out[0:1];
     wire signed [31:0] quantized_pool_out[0:1];
@@ -540,107 +540,7 @@ module lenet (
     end
 
 
-    // next_sram_weight_addr
-    /* always@(posedge clk)begin
-        if(!rst_n) begin
-            sram_weight_addr0 <= 0;
-            sram_weight_addr1 <= 1;
-        end
-        else begin
-            case(cur_state)
-                CONV1:begin
-                    case(timer)
-                        // addr + 2
-                        0,1,2,3: begin
-                            sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                            sram_weight_addr1 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]}+1;
-                        end      
-                        9:begin
-                            // addr - 8
-                            sram_weight_addr0 <= {sram_weight_addr0[15:3]-1,sram_weight_addr0[2:0]};
-                            sram_weight_addr1 <= {sram_weight_addr0[15:3]-1,sram_weight_addr0[2:0]}+1;
-                        end
-                    endcase
-                end
-                CONV1_write:begin
-                    // addr + 10 to the head of next kernal
-                    if(conv1_change_kernal) begin
-                        sram_weight_addr0 <= {sram_weight_addr0[15:1]+5,sram_weight_addr0[0]};
-                        sram_weight_addr1 <= {sram_weight_addr0[15:1]+5,sram_weight_addr0[0]}+1;
-                    end
-                    else if(next_state == CONV2) begin
-                        sram_weight_addr0 <= 60;
-                        sram_weight_addr1 <= 61;
-                    end
-                end
-                CONV2:begin
-                    case(timer)
-                        // addr + 2
-                        0,1,2,3,4: begin
-                            sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                            sram_weight_addr1 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]}+1;
-                        end
-                        // addr - 60
-                        9:if(!conv2_change_kernal) begin
-                            sram_weight_addr0 <= {sram_weight_addr0[15:2]-4'b1111,sram_weight_addr0[1:0]};
-                            sram_weight_addr1 <= {sram_weight_addr0[15:2]-4'b1111,sram_weight_addr0[1:0]}+1;
-                        end
-                    endcase
-                end
-                CONV2_write:begin
-                    if(next_state == CONV3) begin
-                        sram_weight_addr0 <= 1020;
-                        sram_weight_addr1 <= 1021;
-                    end
-                end
-                CONV3:begin
-                    // addr + 2
-                    if(timer < 50) begin
-                        sram_weight_addr0 <= sram_weight_addr0+2;
-                        sram_weight_addr1 <= sram_weight_addr0+3;
-                    end
-                end
-                FC1:begin
-                    // addr + 2
-                    if(timer < 15) begin
-                        sram_weight_addr0 <= sram_weight_addr0+2;
-                        sram_weight_addr1 <= sram_weight_addr0+3;
-                    end
-                end
-                FC2:begin
-                    case(timer)
-                        0,1,2,3,4,5,6,7,8:begin
-                            sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                            sram_weight_addr1 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]}+1;
-                        end
-                        9:begin
-                            sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                            case(conv_cnt)
-                                0:sram_weight_addr1 <= 15750;
-                                1:sram_weight_addr1 <= 15751;
-                                2:sram_weight_addr1 <= 15752;
-                                3:sram_weight_addr1 <= 15753;
-                                4:sram_weight_addr1 <= 15754;
-                                5:sram_weight_addr1 <= 15755;
-                                6:sram_weight_addr1 <= 15756;
-                                7:sram_weight_addr1 <= 15757;
-                                8:sram_weight_addr1 <= 15758;
-                                9:sram_weight_addr1 <= 15759;
-                            endcase
-                        end
-                        10:begin
-                            sram_weight_addr0 <= sram_weight_addr0+1;
-                            sram_weight_addr1 <= sram_weight_addr0+2;
-                        end
-                    endcase
-                end
-                OUTPUT:begin
-                    sram_weight_addr0 <= 'd0;
-                    sram_weight_addr1 <= 'd1;
-                end
-            endcase
-        end
-    end */
+    
     always@(posedge clk)begin
         if(!rst_n) begin
             sram_weight_addr0 <= 0;
@@ -650,10 +550,10 @@ module lenet (
                 CONV1:begin
                     case(timer)
                         // addr + 2
-                        0,1,2,3: begin
+                        0,1,2,3,5,6,7,8: begin
                             sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
                         end      
-                        9:begin
+                        4,9:begin
                             // addr - 8
                             sram_weight_addr0 <= {sram_weight_addr0[15:3]-1,sram_weight_addr0[2:0]};
                         end
@@ -725,10 +625,10 @@ module lenet (
                 CONV1:begin
                     case(timer)
                         // addr + 2
-                        0,1,2,3: begin
+                        0,1,2,3,5,6,7,8: begin
                             sram_weight_addr1 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]}+1;
                         end      
-                        9:begin
+                        4,9:begin
                             // addr - 8
                             sram_weight_addr1 <= {sram_weight_addr0[15:3]-1,sram_weight_addr0[2:0]}+1;
                         end
@@ -802,151 +702,7 @@ module lenet (
             endcase
         end
     end
-    /* always@(*)begin
-        if(!rst_n) begin
-            next_sram_weight_addr = 0;
-        end
-        else begin
-            case(cur_state)
-                CONV1:begin
-                    case(timer)
-                        // addr + 2
-                        0,1,2,3: begin
-                            next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                        end      
-                        9:begin
-                            // addr - 8
-                            next_sram_weight_addr = {sram_weight_addr0[15:3]-1,sram_weight_addr0[2:0]};
-                        end
-                        default: begin
-                            next_sram_weight_addr = sram_weight_addr0;
-                        end
-                    endcase
-                end
-                CONV1_write:begin
-                    // addr + 10 to the head of next kernal
-                    if(conv1_change_kernal) begin
-                        next_sram_weight_addr = {sram_weight_addr0[15:1]+5,sram_weight_addr0[0]};
-                    end
-                    else if(next_state == CONV2) begin
-                        next_sram_weight_addr = 60;
-                    end
-                    else begin
-                        next_sram_weight_addr = sram_weight_addr0;
-                    end
-                end
-                CONV2:begin
-                    case(timer)
-                        // addr + 2
-                        0,1,2,3,4: begin
-                            next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                        end
-                        // addr - 60
-                        9:if(!conv2_change_kernal) begin
-                            next_sram_weight_addr = {sram_weight_addr0[15:2]-4'b1111,sram_weight_addr0[1:0]};
-                        end
-                        default: begin
-                            next_sram_weight_addr = sram_weight_addr0;
-                        end
-                    endcase
-                end
-                CONV2_write:begin
-                    if(next_state == CONV3) begin
-                        next_sram_weight_addr = 1020;
-                    end
-                    else begin
-                        next_sram_weight_addr = sram_weight_addr0;
-                    end
-                end
-                CONV3:begin
-                    // addr + 2
-                    if(timer < 50) begin
-                        next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                    end
-                    else begin
-                        next_sram_weight_addr = sram_weight_addr0;
-                    end
-                end
-                FC1:begin
-                    // addr + 2
-                    if(timer < 15) begin
-                        next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                    end
-                    else begin
-                        next_sram_weight_addr = sram_weight_addr0;
-                    end
-                end
-                FC2:begin
-                    case(timer)
-                        0,1,2,3,4,5,6,7,8:begin
-                            next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                        end
-                        9:begin
-                            next_sram_weight_addr = {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
-                        end
-                        10:begin
-                            next_sram_weight_addr = sram_weight_addr0+1;
-                        end
-                        default:begin
-                            next_sram_weight_addr = sram_weight_addr0;
-                        end
-                    endcase
-                end
-                OUTPUT:begin
-                    next_sram_weight_addr = 'd0;
-                end
-                default:begin
-                    next_sram_weight_addr = sram_weight_addr0;
-                end
-            endcase
-        end
-    end */
-    // sram_weight_addr
-    /* always@(posedge clk)begin
-        if(!rst_n) begin
-            sram_weight_addr0 <= 0;
-            sram_weight_addr1 <= 1;
-        end
-        else begin
-            case(cur_state)
-                CONV1,CONV1_write,CONV2,CONV2_write,CONV3,FC1,FC2,OUTPUT:begin
-                    sram_weight_addr0 <= next_sram_weight_addr0;
-                    sram_weight_addr1 <= next_sram_weight_addr1;
-                end
-            endcase
-        end
-    end */
-    /* always@(posedge clk)begin
-        case(cur_state)
-            FC2:begin
-                case(timer)
-                    9:begin
-                        sram_weight_addr0 <= next_sram_weight_addr;
-                        case(conv_cnt)
-                            0:sram_weight_addr1 <= 15750;
-                            1:sram_weight_addr1 <= 15751;
-                            2:sram_weight_addr1 <= 15752;
-                            3:sram_weight_addr1 <= 15753;
-                            4:sram_weight_addr1 <= 15754;
-                            5:sram_weight_addr1 <= 15755;
-                            6:sram_weight_addr1 <= 15756;
-                            7:sram_weight_addr1 <= 15757;
-                            8:sram_weight_addr1 <= 15758;
-                            9:sram_weight_addr1 <= 15759;
-                        endcase
-                    end
-                    default:begin
-                        sram_weight_addr0 <= next_sram_weight_addr;
-                        sram_weight_addr1 <= next_sram_weight_addr+1;
-                    end
-                endcase
-            end
-            default:begin
-                sram_weight_addr0 <= next_sram_weight_addr;
-                sram_weight_addr1 <= next_sram_weight_addr+1;
-            end
-        endcase
-    end */
+    
 
 
     // next_sram_act_r_addr
@@ -957,10 +713,12 @@ module lenet (
                 CONV1:begin
                     case(timer)
                         // addr + 8
-                        0,1,2,3,4: next_sram_act_r_addr = {sram_act_r_addr[15:3]+1,sram_act_r_addr[2:0]};
+                        0,1,2,3,5,6,7,8: next_sram_act_r_addr = {sram_act_r_addr[15:3]+1,sram_act_r_addr[2:0]};
+                        // addr - 24
+                        4: next_sram_act_r_addr = {sram_act_r_addr[15:3]-3,sram_act_r_addr[2:0]};
                         // addr - 40
-                        5:         next_sram_act_r_addr = {sram_act_r_addr[15:3]-5,sram_act_r_addr[2:0]};
-                        9:begin
+                        9: next_sram_act_r_addr = {sram_act_r_addr[15:3]-5,sram_act_r_addr[2:0]};
+                        12:begin
                             // addr - 6 + 16
                             if(conv1_change_row) next_sram_act_r_addr = {sram_act_r_addr[15:4]+1,sram_act_r_addr[3],3'b000};
                             // addr + 1
@@ -1079,7 +837,7 @@ module lenet (
     always@(posedge clk)begin
         case(cur_state)
             CONV1:begin
-                if(timer == 9) begin
+                if(timer == 12) begin
                     case(conv_cnt)
                         0:sram_act_wdata0[15:0]  <= {clamped_pool_out[1],clamped_pool_out[0]};
                         1:sram_act_wdata0[31:16] <= {clamped_pool_out[1],clamped_pool_out[0]};
@@ -1154,7 +912,7 @@ module lenet (
         else begin
             case(cur_state)
                 CONV1:begin
-                    if(timer == 9) timer <= 0;
+                    if(timer == 12) timer <= 0;
                     else timer <= timer + 1;
                 end
                 CONV2:begin
@@ -1228,7 +986,7 @@ module lenet (
     // connect the Psum register to mac input
     generate
         for(i=0;i<40;i=i+1)begin:gen_mac_C
-            assign mac_C[i] = mac_reg[i];
+            assign mac_C[i] = (cur_state == CONV1 && timer == 7) ? 0 : mac_reg[i];
         end
     endgenerate
 
@@ -1242,7 +1000,7 @@ module lenet (
                         CONV1:begin
                             case(timer)
                                 0:mac_reg[i] <= 0;
-                                2,3,4,5,6:mac_reg[i] <= mac_O[i];
+                                2,3,4,5,6,7,8,9,10,11:mac_reg[i] <= mac_O[i];
                             endcase
                         end
                         CONV2:begin
@@ -1276,7 +1034,7 @@ module lenet (
                         CONV1:begin
                             case(timer)
                                 0:mac_reg[i] <= 0;
-                                2,3,4,5,6:mac_reg[i] <= mac_O[i];
+                                2,3,4,5,6,7,8,9,10,11:mac_reg[i] <= mac_O[i];
                             endcase
                         end
                         CONV2:begin
@@ -1310,7 +1068,7 @@ module lenet (
                         CONV1:begin
                             case(timer)
                                 0:mac_reg[i] <= 0;
-                                2,3,4,5,6:mac_reg[i] <= mac_O[i];
+                                2,3,4,5,6,7,8,9,10,11:mac_reg[i] <= mac_O[i];
                             endcase
                         end
                         CONV2:begin
@@ -1348,6 +1106,21 @@ module lenet (
         end
     endgenerate
 
+    //conv_sum_buf
+    generate
+        for(i=0;i<4;i=i+1)begin
+            always@(posedge clk)begin
+                case(cur_state)
+                    CONV1:begin
+                        case(timer)
+                            7:conv_sum_buf[i+4]<=conv_sum[i];
+                        endcase
+                    end
+                endcase
+            end
+        end
+    endgenerate
+
     
     generate
         for (i=0;i<8;i=i+1)begin:gen_conv_sum
@@ -1359,7 +1132,7 @@ module lenet (
 
     generate
         for (i=0;i<2;i=i+1)begin:gen_pool
-            POOL pool(conv_sum[i*2],conv_sum[i*2+1],conv_sum[i*2+4],conv_sum[i*2+5],pool_out[i]);
+            POOL pool(conv_sum[i*2],conv_sum[i*2+1],conv_sum_buf[i*2+4],conv_sum_buf[i*2+5],pool_out[i]);
         end
     endgenerate
 
