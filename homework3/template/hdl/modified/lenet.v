@@ -76,7 +76,7 @@ module lenet (
     // flag
     reg [4:0] conv_cnt;// conv1: 0~3, conv2: 0~19
     reg [4:0] conv2_cnt;// conv2: 0~24
-    reg [2:0] conv_page; // to count the pages in conv2 from 0 to 5
+    reg [3:0] conv_page; // to count the pages in conv2 from 0 to 5
     reg [3:0] conv_kernal_cnt;// to count the kernals in conv2 from 0 to 15
 
     reg signed [31:0] scale_factor;
@@ -130,9 +130,9 @@ module lenet (
 
     assign conv2_change_row = (sram_act_r_addr[1:0] == 2'b10) ? 1 : 0;
     assign conv2_change_kernal = (conv2_cnt == 14) ? 1 : 0;
-    assign conv2_change_page = ((conv_page != 5) && (timer == 8)) ? 1 : 0;
+    assign conv2_change_page = ((conv_page != 11) && (timer == 7)) ? 1 : 0;
     assign conv2_w_flag = ((conv_cnt == 1) || (conv_cnt == 6) || (conv_cnt == 11)) ? 1 : 0;
-    assign conv2_once = (conv_page == 5 && timer == 9) ? 1 : 0;
+    assign conv2_once = (conv_page == 11 && timer == 7) ? 1 : 0;
     assign conv2_end = ((conv_kernal_cnt == 15) && conv2_change_kernal) ? 1 : 0;
     // && (conv_cnt == 11) && conv2_change_kernal
 
@@ -360,14 +360,15 @@ module lenet (
         if(cur_state>2)begin
             $write("state: %h",cur_state);
             
-            $write(", w_bf:%h",weight_buf_1);
+            $write(", csbf:%h,%h",conv_sum_buf[4],conv_sum_buf[5]);
             $write(",\033[31m sram_weight_addr0:%h\033[m",sram_weight_addr0);
             $write(",\033[31m sram_act_addr0:%h\033[m",sram_act_addr0);
             $write(", conv_cnt:%1d",conv_cnt);
             $write(", mc[0]:%d",mac_reg[0]);
             
-            //$write(", act_wd0,1:%h,%h",sram_act_wdata0,sram_act_wdata1);
-            $write(", timer",timer);
+            $write(", act_rd0,1:%h,%h",sram_act_rdata0,sram_act_rdata1);
+            $write(", timer:",timer);
+            $write(", c_p:",conv_page);
             $display();
         end
         
@@ -575,8 +576,10 @@ module lenet (
                             sram_weight_addr0 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]};
                         end
                         // addr - 60
-                        9:if(!conv2_change_kernal) begin
+                        7:begin
+                        if((!conv2_change_kernal && (conv_page == 11)) || (conv_page == 5)) begin
                             sram_weight_addr0 <= {sram_weight_addr0[15:2]-4'b1111,sram_weight_addr0[1:0]};
+                        end
                         end
                     endcase
                 end
@@ -650,7 +653,7 @@ module lenet (
                             sram_weight_addr1 <= {sram_weight_addr0[15:1]+1,sram_weight_addr0[0]}+1;
                         end
                         // addr - 60
-                        9:if(!conv2_change_kernal) begin
+                        7:if((!conv2_change_kernal && (conv_page == 11)) || (conv_page == 5)) begin
                             sram_weight_addr1 <= {sram_weight_addr0[15:2]-4'b1111,sram_weight_addr0[1:0]}+1;
                         end
                     endcase
@@ -735,25 +738,27 @@ module lenet (
                 CONV2:begin
                     case(timer)
                         // addr + 4
-                        0,1,2,3,4: next_sram_act_r_addr = {sram_act_r_addr[15:2]+1,sram_act_r_addr[1:0]};
-                        // addr - 20
-                        5:         next_sram_act_r_addr = {sram_act_r_addr[15:2]-5,sram_act_r_addr[1:0]};
-                        8:begin
-                            if(conv_page == 5) begin
+                        0,1,2,3: next_sram_act_r_addr = {sram_act_r_addr[15:2]+1,sram_act_r_addr[1:0]};
+                        // addr - 16
+                        4: next_sram_act_r_addr = {sram_act_r_addr[15:2]-4,sram_act_r_addr[1:0]};
+                        6:begin
+                            if(conv_page == 11) begin
                                 // addr - 280 
-                                next_sram_act_r_addr = {sram_act_r_addr[15:3]-6'b100011,sram_act_r_addr[2:0]};
-                            end
-                            else begin
-                                // addr + 56 : change page
-                                next_sram_act_r_addr = {sram_act_r_addr[15:3]+3'b111,sram_act_r_addr[2:0]};
+                                next_sram_act_r_addr = {sram_act_r_addr[15:2]-7'b1000111,sram_act_r_addr[1:0]};
                             end
                         end
-                        9:begin
-                            if(conv2_change_kernal)next_sram_act_r_addr = 256;
-                            // addr - 2 + 8 : change row but not kernal
-                            else if(conv2_change_row) next_sram_act_r_addr = {sram_act_r_addr[15:3]+1,sram_act_r_addr[2],2'b00};
-                            // addr + 1
-                            else next_sram_act_r_addr = sram_act_r_addr+1;
+                        7:begin
+                            case(conv_page)
+                                5:next_sram_act_r_addr = {sram_act_r_addr[15:2]-7'b1000101,sram_act_r_addr[1:0]};
+                                11:begin
+                                    if(conv2_change_kernal) next_sram_act_r_addr = 256;
+                                    // addr - 2 + 8 : change row but not kernal
+                                    else if(conv2_change_row) next_sram_act_r_addr = {sram_act_r_addr[15:3]+1,sram_act_r_addr[2],2'b00};
+                                    // addr + 1
+                                    else next_sram_act_r_addr = sram_act_r_addr+1;
+                                end
+                                default: next_sram_act_r_addr = {sram_act_r_addr[15:3]+3'b111,sram_act_r_addr[2:0]};
+                            endcase
                         end
                         default:next_sram_act_r_addr=sram_act_r_addr;
                     endcase
@@ -764,7 +769,7 @@ module lenet (
                 end
                 CONV3:begin
                     if(timer<50) next_sram_act_r_addr = {sram_act_r_addr[15:1]+1,sram_act_r_addr[0]};
-                    else if(timer == 53) next_sram_act_r_addr = 592;
+                    else if(conv3_once) next_sram_act_r_addr = 592;
                     else next_sram_act_r_addr=sram_act_r_addr;
                 end
                 CONV3_write:begin
@@ -851,7 +856,7 @@ module lenet (
                 end
             end
             CONV2:begin
-                if(timer == 9) begin
+                if(timer == 7 && conv_page == 11) begin
                     case(conv_cnt)
                         0,7:sram_act_wdata0[15:0]  <= {clamped_pool_out[1],clamped_pool_out[0]};
                         1:sram_act_wdata0[31:16] <= {clamped_pool_out[1],clamped_pool_out[0]};
@@ -871,7 +876,7 @@ module lenet (
                 end
             end
             CONV3:begin
-                if(timer == 53) begin
+                if(conv3_once) begin
                     case(conv_cnt)
                         0:sram_act_wdata0[7:0]   <= clamped_relued_fc_sum;
                         1:sram_act_wdata0[15:8]  <= clamped_relued_fc_sum;
@@ -916,11 +921,11 @@ module lenet (
                     else timer <= timer + 1;
                 end
                 CONV2:begin
-                    if(conv2_once || conv2_change_page) timer <= 0;
+                    if(timer == 7) timer <= 0;
                     else timer <= timer + 1;
                 end
                 CONV3:begin
-                    if(timer == 53) timer <= 0;
+                    if(conv3_once) timer <= 0;
                     else timer <= timer + 1;
                 end
                 FC1:begin
@@ -1005,7 +1010,7 @@ module lenet (
                         end
                         CONV2:begin
                             case(timer)
-                                0:if(conv_page == 0) mac_reg[i] <= 0;
+                                0:if((conv_page == 0) || (conv_page == 6)) mac_reg[i] <= 0;
                                 2,3,4,5,6:mac_reg[i] <= mac_O[i];
                             endcase
                         end
@@ -1039,7 +1044,7 @@ module lenet (
                         end
                         CONV2:begin
                             case(timer)
-                                0:if(conv_page == 0) mac_reg[i] <= 0;
+                                0:if((conv_page == 0) || (conv_page == 6)) mac_reg[i] <= 0;
                                 2,3,4,5,6:mac_reg[i] <= mac_O[i];
                             endcase
                         end
@@ -1073,7 +1078,7 @@ module lenet (
                         end
                         CONV2:begin
                             case(timer)
-                                0:if(conv_page == 0) mac_reg[i] <= 0;
+                                0:if((conv_page == 0) || (conv_page == 6)) mac_reg[i] <= 0;
                                 2,3,4,5,6:mac_reg[i] <= mac_O[i];
                             endcase
                         end
@@ -1095,8 +1100,8 @@ module lenet (
                         end
                         CONV2:begin
                             case(timer)
-                                0:if(conv_page == 0) mac_reg[i] <= 0;
-                                3,4,5,6,7:mac_reg[i] <= mac_O[i];
+                                0:if((conv_page == 0) || (conv_page == 6)) mac_reg[i] <= 0;
+                                2,3,4,5,6:mac_reg[i] <= mac_O[i];
                             endcase
                         end
                         OUTPUT:mac_reg[i] <= 0;
@@ -1115,6 +1120,9 @@ module lenet (
                         case(timer)
                             7:conv_sum_buf[i+4]<=conv_sum[i];
                         endcase
+                    end
+                    CONV2:begin
+                        if((timer == 7) && (conv_page == 5))conv_sum_buf[i+4]<=conv_sum[i];
                     end
                 endcase
             end
